@@ -1,141 +1,82 @@
-# 🖐️ Real-Time Sign Language Translator (MediaPipe + LSTM)
+# ArSen_AI
 
-A real-time Computer Vision application that translates Sign Language into text using a webcam.
+Real-time translator from Armenian Sign Language (ArSL) to text. It uses a normal webcam and runs on a CPU.
 
-Unlike traditional CNN approaches that analyze raw pixels, this project uses **MediaPipe** to extract hand skeleton landmarks and an **LSTM (Long Short-Term Memory)** neural network to analyze the temporal sequence of movements. This makes the model **lightweight**, **fast**, and capable of learning from small datasets.
+<!-- TODO (Alen): record a short demo, save it as docs/demo.gif, and replace the line below with: ![Demo](docs/demo.gif) -->
+> Demo GIF coming soon.
 
-## 🚀 Key Features
+## Why
 
-  * **Real-Time Performance:** Runs smoothly on CPU (no heavy GPU required).
-  * **Data Efficient:** Uses skeleton coordinates (x, y, z) instead of images, reducing noise.
-  * **Robustness:** Includes data augmentation (rotation/shifting) to handle small datasets (10 videos/class).
-  * **Architecture:** MediaPipe Hands → LSTM/GRU Network → Softmax Classification.
+I read a study by Armenian researchers. It says many deaf people in Armenia have trouble in public places, because almost nobody around them understands sign language. Armenia has very few sign language interpreters. Some deaf people are elderly and live alone.
 
------
+I could not find another program that does this for Armenian Sign Language. This project is a first step.
 
-## 🛠️ Installation
+## What it does
 
-1.  **Clone the repository:**
+- Opens the webcam and finds your hand.
+- Reads the last 30 frames of hand movement.
+- Shows the predicted Armenian word on screen, with a confidence score.
 
-    ```bash
-    git clone https://github.com/Alen-Gevorgyan/ArSen_AI.git
-    cd ArSen_AI
-    ```
+The trained model in this repo (`action.h5`) knows 25 single words, for example ողջույն (hello), ցտեսություն (goodbye), ներողություն (sorry), ես (I), դու (you), ինչ (what), որտեղ (where).
 
-2.  **Create a virtual environment (Optional but Recommended):**
+## How it works
 
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows use: venv\Scripts\activate
-    ```
+1. **Hand landmarks.** MediaPipe Hands finds 21 points on the hand in each frame. Each point has x, y, z coordinates.
+2. **Sequence.** 30 frames are stacked into one input of shape 30 x 21 x 3 (stored as 30 x 63).
+3. **Model.** Three LSTM layers (128, 128, 64 units) with batch normalization and dropout, then dense layers and a softmax over the word classes.
+4. **Stable output.** The app predicts on every frame once it has 30 frames. It shows a word only when the same word wins in at least 4 of the last 5 predictions. If the hand leaves the frame, the buffer resets.
 
-3.  **Install Dependencies:**
+Training data is small, so `preprocessing.py` makes 5 versions of every video: the original, a small rotation, a small shift, a small scale change, and added noise.
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+## Results
 
-### `requirements.txt`
+The saved model scored 97.4% accuracy on its test split (`model_info.npy`). The test split is a random 15% of the augmented samples. Augmented copies of the same video can end up in both training and test, so this number is higher than real-world accuracy. Live use with a webcam is less accurate, especially in poor light.
 
-```text
-opencv-python
-mediapipe
-tensorflow
-numpy
-scikit-learn
-matplotlib
-```
+## Files
 
------
+| File | What it does |
+|---|---|
+| `preprocessing.py` | Reads videos from `videos/<word>/`, extracts landmarks, pads or trims to 30 frames, augments, saves `processed_data/*.npy` |
+| `train_model.py` | Trains the LSTM model, saves `action.h5` and `model_info.npy` (labels and test scores), plots training curves |
+| `main.py` | Runs the real-time webcam translator |
+| `action.h5` | Trained model |
+| `model_info.npy` | Label map for the trained model |
+| `arial.ttf` | Font used to draw Armenian letters on the video |
 
-## 📂 Project Structure
+## How to run
 
-It is critical to organize your video data exactly as shown below before running the scripts.
-
-```text
-├── Dataset/                 # Put your raw videos here
-│   ├── class_1/
-│   │   ├── video1.mp4
-│   │   ├── ...
-│   ├── class_2/
-│   ├── ...
-│   └── class_n/
-├── preprocessing.py    # Extracts landmarks & augments data
-├── train_model.py         # Trains the LSTM model
-├── main.py           # Runs the real-time webcam translator
-└── README.md
-```
-
------
-
-## 🏃‍♂️ Usage Instructions
-
-### Step 1: Data Processing & Augmentation
-
-Extracts hand landmarks from your videos. Since the dataset is small (10 videos/class), this script also applies mathematical augmentation (rotation/shifts) to increase the training data by 5x.
+Python 3.9–3.11 is recommended (TensorFlow 2.13).
 
 ```bash
-python preprocessing.py
-```
-
-  * **Output:** Generates `X.npy` (features) and `y.npy` (labels).
-
-### Step 2: Train the Model
-
-Trains the LSTM network on the extracted coordinate sequences.
-
-```bash
-python train_model.py
-```
-
-  * **Output:** Saves the trained model weights to `action.h5`.
-  * *Note:* Look for validation accuracy \> 85%. If it's lower, consider recording 5 more videos per class.
-
-### Step 3: Real-Time Translation
-
-Launches the webcam, detects hands, and predicts the sign in real-time.
-
-```bash
+git clone https://github.com/AlenGevorgyan/ArSen_AI.git
+cd ArSen_AI
+pip install -r requirements.txt
+pip install pillow matplotlib
 python main.py
 ```
 
-  * Press `q` to quit the application.
+Press `Q` to quit and `C` to clear the buffer. Hold a sign until the word appears. Hide your hand to start the next sign.
 
------
+Note: `main.py` looks for `Arial.ttf`, but the file in the repo is `arial.ttf`. On Linux and macOS, rename the file or change `FONT_PATH` in `main.py`.
 
-## 🧠 Model Architecture Details
+### Train on your own videos
 
-### Why not CNN?
+1. Put videos in `videos/<word>/` (one folder per word, `.mp4`, `.avi` or `.mov`).
+2. Run `python preprocessing.py`.
+3. In `train_model.py`, set `DATA_PATH = "processed_data"` (it currently points to a Kaggle path).
+4. Run `python train_model.py`.
 
-Using CNNs on raw video frames requires thousands of samples to learn invariance (lighting, background, skin tone). By using **MediaPipe**, we abstract the visual data into **21 points (Landmarks)**.
+## Limits
 
-1.  **Input:** 30 Frames $\times$ 21 Landmarks $\times$ 3 Coordinates (x, y, z).
-2.  **LSTM Layers:** Learns the "history" of the movement (sequence).
-3.  **Dense Layer:** Classifies the movement into one of 26 categories.
+- Single words only. It does not build sentences.
+- Needs good light. In the dark it guesses random words.
+- Uses only the first hand it detects, so two-handed signs are not fully read.
+- 25 words, trained on a small set of videos.
+- Not tested with deaf users yet.
 
------
+## Next steps
 
-## ⚠️ Troubleshooting
-
-**1. Model is predicting random words?**
-
-  * Ensure you have good lighting. MediaPipe needs to see the hand clearly.
-  * Check if the model is overfitting. If Training Accuracy is 99% but Validation is 50%, you need more data augmentation.
-
-**2. "No Hand Detected" errors?**
-
-  * Make sure your hand is visible in the frame before the recording sequence starts.
-
-**3. Laggy performance?**
-
-  * The model is very light. If it lags, it is likely the drawing functions in OpenCV. Try disabling the skeleton drawing in `main.py`.
-
------
-
-## 📝 Future Improvements
-
-  * Add a "Space" and "Delete" gesture to form sentences.
-  * Implement Text-to-Speech (TTS) to read the predicted words aloud.
-  * Deploy as a web app.
-
------
+- Full sentences.
+- Work in any light.
+- More signs.
+- Tests with deaf people in Armenia.
